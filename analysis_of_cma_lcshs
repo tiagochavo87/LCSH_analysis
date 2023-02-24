@@ -1,0 +1,97 @@
+import pandas as pd
+
+# Read the data from the CSV file
+data = pd.read_csv("LOH.csv", sep=";")
+
+# Apply a filter to exclude chromosomes X and Y
+data = data.loc[(data['Chrom'] != 'X') & (data['Chrom'] != 'Y')]
+
+# Replace dots and convert Tamanho column to integer type
+data['Tamanho'] = data['Tamanho'].str.replace('.', '').astype(int)
+
+# Filter data for autosomes with a size greater than 10,000,000
+data_autosomes = data.loc[data['Chrom'].str.contains('^([1-9]|[1-9][0-9])$')]
+data_autosomes = data_autosomes[data_autosomes['Tamanho'] > 10000000]
+
+# Write the autosomes data to a new CSV file
+data_autosomes.to_csv('LCSHs_>_10.csv', sep=';', index=False)
+
+# Filter data for regions with size greater than or equal to 3,000,000
+data = data[data['Tamanho'] >= 3000000]
+
+# Filter data for regions with sizes between 3,000,000 and 5,000,000
+data_3_5 = data[(data['Tamanho'] > 3000000) & (data['Tamanho'] <= 5000000)]
+
+# Write the 3-5 MB regions data to a new CSV file
+data_3_5.to_csv('LCSHs_>_3_<_5.csv', sep=';', index=False)
+
+# Filter data for 3-5 MB regions with a total size of at least 10,000,000 and only one region per file
+data_3_5 = data_3_5.groupby('File').filter(lambda x: len(x) == 1 and x['Tamanho'].sum() >= 10000000)
+
+# Filter data for regions with size greater than 5,000,000
+data_5 = data[data['Tamanho'] > 5000000]
+
+# Filter data for regions with a total size of at least 10,000,000 and only one chromosome per file
+data_5 = data_5.groupby('File').filter(lambda x: len(x.groupby('Chrom')) == 1 and x['Tamanho'].sum() >= 10000000)
+
+# Write the 5 MB regions data to a new CSV file
+data_5.to_csv('possibles_UPDs.csv', sep=';', index=False)
+
+# Filter data for cases with at least one LCSH greater than 5 MB
+data_5_mb = data[data['Tamanho'] > 5000000]
+data_5_mb = data_5_mb.groupby('File').filter(lambda x: x[x['Tamanho'] >= 5000000].shape[0] > 0)
+
+# Print all cases with LCSHs greater than 5 MB to a CSV file
+data_5_mb.to_csv('LCSHs_>_5.csv', sep=';', index=False)
+
+# Sum LCSHs greater than 3 MB for each case
+sum_lcshs = data[data['Tamanho'] >= 3000000].groupby('File')['Tamanho'].sum()
+
+# Create a new DataFrame with case names and total LCSHs greater than 3 MB
+output = pd.DataFrame({'File': sum_lcshs.index, 'Total LCSHs > 3MB': sum_lcshs.values})
+
+# Write the output DataFrame to a CSV file
+output.to_csv('total_lcshs.csv', sep=';', index=False)
+
+# Calculate the total size of human autosomal DNA
+total_autosomal_dna = 2881000000
+
+# Calculate the proportion of LCSHs greater than 3 MB for each case
+proportions = []
+for file, size in sum_lcshs.items():
+    proportion = size / total_autosomal_dna
+    proportions.append({'File': file, 'Total LCSHs > 3MB': size, 'Proportion of LCSHs > 3MB to Autosomal DNA': proportion})
+
+# Create a new DataFrame with the proportion for each case
+proportions_df = pd.DataFrame(proportions)
+
+# Write the output DataFrame to a CSV file
+proportions_df.to_csv('lcsh_proportions.csv', sep=';', index=False)
+
+import numpy as np
+
+# Define the F values
+f_values = np.array([0.5, 1.5, 3, 6, 12.5, 25]) / 100
+
+# Get the data proportions
+proportions = pd.read_csv('lcsh_proportions.csv', sep=';')
+
+# Calculate the F values closest to the proportions
+for index, row in proportions.iterrows():
+    proportion = row['Proportion of LCSHs > 3MB to Autosomal DNA']
+    closest_f = f_values[np.abs(f_values - proportion).argmin()]
+    proportions.at[index, 'Inbreeding Coefficient (F)'] = closest_f
+
+# Transpose the cases to the columns corresponding to the F values
+transposed_proportions = pd.DataFrame(columns=['File', '0.5%', '1.5%', '3%', '6%', '12.5%', '25%'])
+for index, row in proportions.iterrows():
+    file = row['File']
+    f_value = row['Inbreeding Coefficient (F)']
+    transposed_proportions.at[index, 'File'] = file
+    transposed_proportions.at[index, f'{f_value*100:.1f}%'] = row['Proportion of LCSHs > 3MB to Autosomal DNA']
+
+# Write the transposed DataFrame to a new CSV file
+transposed_proportions.to_csv('lcsh_transposed_proportions.csv', sep=';', index=False)
+
+# Write the output DataFrame to a CSV file
+proportions.to_csv('inbreeding_coefficients.csv', sep=';', index=False)
